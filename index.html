@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>EA Bot</title>
+<style>
+:root{--bg:#EDF1F5;--card:#fff;--ink:#14213D;--mute:#5B6B82;--line:#D5DDE7;--acc:#0F8B8D;--loss:#C0452B;--gain:#1F7A4F;color-scheme:light dark;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+@media(prefers-color-scheme:dark){:root{--bg:#0F1A2B;--card:#18263B;--ink:#E8EEF6;--mute:#93A3BA;--line:#2A3B55;--acc:#3CC2C4;--loss:#F08A72;--gain:#4CC38A}}
+body{margin:0 auto;max-width:520px;padding:14px;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,sans-serif}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin:10px 0}
+h1{font-size:20px;margin:6px 0}h2{font-size:15px;margin:0 0 8px}
+button,input{font:inherit;min-height:46px;border-radius:12px;border:1px solid var(--line);padding:0 14px;background:var(--card);color:var(--ink)}
+input{width:100%;box-sizing:border-box}
+button{font-weight:600;cursor:pointer}.pri{background:var(--acc);color:#fff;border-color:var(--acc)}.stop{background:var(--loss);color:#fff;border-color:var(--loss)}
+.g{display:grid;grid-template-columns:1fr 1fr;gap:10px}.row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line);font-size:14px}
+.badge{display:inline-block;padding:3px 10px;border-radius:99px;font-size:13px;font-weight:700;color:#fff}
+.up{color:var(--gain)}.dn{color:var(--loss)}pre{white-space:pre-wrap;font-size:12px;color:var(--mute);margin:0}
+</style></head><body>
+<h1>EA Bot <span id="mode" class="badge" style="background:var(--mute)">…</span></h1>
+<div class="card" id="login"><h2>Gateway token</h2><input id="tok" type="password" autocomplete="off" placeholder="Your GATEWAY_TOKEN"><button class="pri" style="width:100%;margin-top:10px" id="in">Sign in</button><p id="err" class="dn"></p></div>
+<div id="app" hidden>
+ <div class="card"><div class="row"><span>Bot</span><b id="st">–</b></div><div class="row"><span>Today</span><b id="pnl">–</b></div>
+  <div class="g" style="margin-top:12px"><button class="pri" id="go">Start</button><button class="stop" id="kill">Close all and stop</button></div></div>
+ <div class="card"><h2>Open trades</h2><div id="pos"></div></div>
+ <div class="card"><h2>Settings</h2><div class="g" id="f"></div><button class="pri" style="width:100%;margin-top:10px" id="save">Save settings</button></div>
+ <div class="card"><h2>Activity</h2><pre id="log"></pre></div>
+</div>
+<script>
+var T="",run=false,$=function(i){return document.getElementById(i)};
+var F=[["symbols","Symbols (comma separated)"],["riskPct","Risk per trade %"],["slPct","Stop loss %"],["tpPct","Take profit %"],["maxOpen","Max open trades"],["maxNotionalPct","Max size % of balance"],["dailyLossPct","Daily loss limit %"],["startHour","Start hour"],["endHour","End hour"]];
+function api(p,b){return fetch(p,{method:b===undefined?"GET":"POST",headers:{Authorization:"Bearer "+T,"Content-Type":"application/json"},body:b===undefined?undefined:JSON.stringify(b)}).then(function(r){if(r.status===401)throw new Error("Wrong token");return r.json()})}
+function money(n){return(n<0?"-":"+")+Math.abs(n).toFixed(2)+" USDT"}
+function render(s){run=s.running;$("mode").textContent=s.mode;$("mode").style.background=s.mode==="LIVE"?"var(--loss)":"var(--acc)";
+ $("st").textContent=s.running?"Running":"Paused";$("go").textContent=s.running?"Pause":"Start";
+ $("pnl").textContent=money(s.dayPnl);$("pnl").className=s.dayPnl>=0?"up":"dn";
+ $("pos").textContent="";if(!s.pos.length){$("pos").textContent="No open trades."}
+ s.pos.forEach(function(p){var d=document.createElement("div");d.className="row";var a=document.createElement("span"),b=document.createElement("b"),v=(p.px/p.entry-1)*p.cost;
+  a.textContent=p.sym+" @ "+p.entry.toPrecision(6);b.textContent=money(v);b.className=v>=0?"up":"dn";d.append(a,b);$("pos").append(d)});
+ $("log").textContent=s.log.join("\n");
+ if(!$("f").children.length){F.forEach(function(x){var l=document.createElement("label"),i=document.createElement("input");l.textContent=x[1];l.style.fontSize="13px";i.id="c_"+x[0];l.append(i);$("f").append(l)});
+  var c=s.cfg;F.forEach(function(x){$("c_"+x[0]).value=Array.isArray(c[x[0]])?c[x[0]].join(","):c[x[0]]})}}
+function poll(){api("/api/status").then(render).catch(function(e){$("err").textContent=e.message;$("login").hidden=false;$("app").hidden=true;clearInterval(poll.t)})}
+$("in").onclick=function(){T=$("tok").value;$("err").textContent="";api("/api/status").then(function(s){try{sessionStorage.setItem("t",T)}catch(e){}$("login").hidden=true;$("app").hidden=false;render(s);poll.t=setInterval(poll,3000)}).catch(function(e){$("err").textContent=e.message})};
+$("go").onclick=function(){api(run?"/api/stop":"/api/start",{}).then(poll)};
+$("kill").onclick=function(){if(confirm("Close all trades at market and stop the bot?"))api("/api/closeall",{}).then(poll)};
+$("save").onclick=function(){var b={interval:"5m"};F.forEach(function(x){var v=$("c_"+x[0]).value;b[x[0]]=x[0]==="symbols"?v.toUpperCase().split(",").map(function(s){return s.trim()}).filter(Boolean):v});api("/api/config",b).then(poll)};
+try{var s=sessionStorage.getItem("t");if(s){$("tok").value=s;$("in").click()}}catch(e){}
+</script></body></html>
